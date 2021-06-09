@@ -263,13 +263,20 @@ public class MetadataCreateIndexService {
      * the timeout, then {@link CreateIndexClusterStateUpdateResponse#isShardsAcknowledged()} will
      * return true, otherwise if the operation timed out, then it will return false.
      *
+     *
      * @param request the index creation cluster state update request
      * @param listener the listener on which to send the index creation cluster state update response
      */
     public void createIndex(final CreateIndexClusterStateUpdateRequest request,
                             final ActionListener<CreateIndexClusterStateUpdateResponse> listener) {
+        /**
+         * 方法负责在clusterstate中创建新的index，
+         * 并且等待指定数目（默认为1）状态为active的分片副本创建完成
+         * （activeShardsObserver.waitForActiveShards方法实现），最终返回给listener
+         */
         onlyCreateIndex(request, ActionListener.wrap(response -> {
             if (response.isAcknowledged()) {
+                // 等待指定数目（默认为1）状态为active的分片副本创建完成
                 activeShardsObserver.waitForActiveShards(new String[]{request.index()}, request.waitForActiveShards(), request.ackTimeout(),
                     shardsAcknowledged -> {
                         if (shardsAcknowledged == false) {
@@ -287,6 +294,8 @@ public class MetadataCreateIndexService {
     private void onlyCreateIndex(final CreateIndexClusterStateUpdateRequest request,
                                  final ActionListener<ClusterStateUpdateResponse> listener) {
         normalizeRequestSetting(request);
+        // clusterService.submitStateUpdateTask，提交集群状态修改任务，
+        // 提交任务的执行逻辑是AckedClusterStateUpdateTask类内部的execute方法
         clusterService.submitStateUpdateTask(
             "create-index [" + request.index() + "], cause [" + request.cause() + "]",
             new AckedClusterStateUpdateTask<ClusterStateUpdateResponse>(Priority.URGENT, request, listener) {
@@ -297,6 +306,7 @@ public class MetadataCreateIndexService {
 
                 @Override
                 public ClusterState execute(ClusterState currentState) throws Exception {
+                    // 真正执行
                     return applyCreateIndexRequest(currentState, request, false);
                 }
 

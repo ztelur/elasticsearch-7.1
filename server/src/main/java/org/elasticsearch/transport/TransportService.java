@@ -579,11 +579,13 @@ public class TransportService extends AbstractLifecycleComponent implements Repo
         return futureHandler;
     }
 
+    // 发送 Request
     public <T extends TransportResponse> void sendRequest(final DiscoveryNode node, final String action,
                                                                 final TransportRequest request,
                                                                 final TransportResponseHandler<T> handler) {
         final Transport.Connection connection;
         try {
+            // 获得和某个 node 的丽娜姐
             connection = getConnection(node);
         } catch (final NodeNotConnectedException ex) {
             // the caller might not handle this so we invoke the handler

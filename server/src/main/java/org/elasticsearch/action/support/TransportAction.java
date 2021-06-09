@@ -139,6 +139,9 @@ public abstract class TransportAction<Request extends ActionRequest, Response ex
 
     /**
      * Use this method when the transport action should continue to run in the context of the current task
+     *  TransportAction会调用一个请求过滤链来处理请求，
+     *  如果相关的插件定义了对该action的过滤处理，则先会执行插件的处理逻辑，
+     *  然后再进入TransportAction的处理逻辑，过滤链的处理逻辑如下
      */
     public final void execute(Task task, Request request, ActionListener<Response> listener) {
         ActionRequestValidationException validationException = request.validate();
@@ -150,7 +153,7 @@ public abstract class TransportAction<Request extends ActionRequest, Response ex
         if (task != null && request.getShouldStoreResult()) {
             listener = new TaskResultStoringActionListener<>(taskManager, task, listener);
         }
-
+        // 交给 chain 执行
         RequestFilterChain<Request, Response> requestFilterChain = new RequestFilterChain<>(this, logger);
         requestFilterChain.proceed(task, actionName, request, listener);
     }
@@ -173,6 +176,7 @@ public abstract class TransportAction<Request extends ActionRequest, Response ex
         public void proceed(Task task, String actionName, Request request, ActionListener<Response> listener) {
             int i = index.getAndIncrement();
             try {
+                // 先 filter 执行，然后再调用 doExecute 方法
                 if (i < this.action.filters.length) {
                     this.action.filters[i].apply(task, actionName, request, listener, this);
                 } else if (i == this.action.filters.length) {

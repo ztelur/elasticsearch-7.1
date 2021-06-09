@@ -232,6 +232,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
         final boolean includesSystem = includesSystem(bulkRequest, clusterService.state().metadata().getIndicesLookup(), systemIndices);
 
         if (includesSystem || needToCheck()) {
+            // 在批量插入前，要先检查 index 是否都存在，不存在，则根据规则自动创建
             // Attempt to create all the indices that we're going to need during the bulk before we start.
             // Step 1: collect all the indices in the request
             final Map<String, Boolean> indices = bulkRequest.requests.stream()
@@ -265,6 +266,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
                 executeBulk(task, bulkRequest, startTime, listener, responses, indicesThatCannotBeCreated);
             } else {
                 final AtomicInteger counter = new AtomicInteger(autoCreateIndices.size());
+                // 如果有index要先创建，则创建后再执行 executeBulk
                 for (String index : autoCreateIndices) {
                     createIndex(index, bulkRequest.timeout(), minNodeVersion,
                         new ActionListener<CreateIndexResponse>() {
@@ -378,6 +380,14 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
         return autoCreateIndex.shouldAutoCreate(index, state);
     }
 
+    /**
+     * index的创建由master来把控，master会根据分片分配和均衡的算法来决定在哪些data node
+     * 上创建index对应的shard，然后将信息同步到data node上，由data node来执行具体的创建动作
+     * @param index
+     * @param timeout
+     * @param minNodeVersion
+     * @param listener
+     */
     void createIndex(String index,
                      TimeValue timeout,
                      Version minNodeVersion,
@@ -389,6 +399,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
         if (minNodeVersion.onOrAfter(Version.V_7_8_0)) {
             client.execute(AutoCreateAction.INSTANCE, createIndexRequest, listener);
         } else {
+            // 交给 IndicesAdminClient 去执行创建 index 的操作
             client.admin().indices().create(createIndexRequest, listener);
         }
     }

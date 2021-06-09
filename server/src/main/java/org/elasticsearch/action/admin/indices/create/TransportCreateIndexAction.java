@@ -76,13 +76,17 @@ public class TransportCreateIndexAction extends TransportMasterNodeAction<Create
         }
 
         final String indexName = indexNameExpressionResolver.resolveDateMathExpression(request.index());
+        // 转化为 CreateIndexClusterStateUpdateRequest
         final CreateIndexClusterStateUpdateRequest updateRequest =
             new CreateIndexClusterStateUpdateRequest(cause, indexName, request.index())
                 .ackTimeout(request.timeout()).masterNodeTimeout(request.masterNodeTimeout())
                 .settings(request.settings()).mappings(request.mappings())
                 .aliases(request.aliases())
                 .waitForActiveShards(request.waitForActiveShards());
-
+        /**
+         * 启动一个异步线程来执行任务，如果当前节点是master节点，则执行masterOperation，
+         * 否则转发给master节点(每个节点在启动时会加入集群，同时保存完整的集群信息，该信息又Discovery模块维护)
+         */
         createIndexService.createIndex(updateRequest, ActionListener.map(listener, response ->
             new CreateIndexResponse(response.isAcknowledged(), response.isShardsAcknowledged(), indexName)));
     }

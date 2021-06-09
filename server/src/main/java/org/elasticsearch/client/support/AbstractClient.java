@@ -698,6 +698,7 @@ public abstract class AbstractClient implements Client {
         @Override
         public <Request extends ActionRequest, Response extends ActionResponse> void execute(
             ActionType<Response> action, Request request, ActionListener<Response> listener) {
+            // 最后交给 AbstractClient 执行？
             client.execute(action, request, listener);
         }
 
@@ -1289,6 +1290,7 @@ public abstract class AbstractClient implements Client {
         @Override
         public <Request extends ActionRequest, Response extends ActionResponse> void execute(
             ActionType<Response> action, Request request, ActionListener<Response> listener) {
+            // 交给 ElasticsearchClient 的子类 ClusterAdmin 执行
             client.execute(action, request, listener);
         }
 

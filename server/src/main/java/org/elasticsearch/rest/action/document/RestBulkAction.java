@@ -81,6 +81,7 @@ public class RestBulkAction extends BaseRestHandler {
 
     @Override
     public RestChannelConsumer prepareRequest(final RestRequest request, final NodeClient client) throws IOException {
+        // 根据RestRquest构建BulkRequest
         BulkRequest bulkRequest = Requests.bulkRequest();
         String defaultIndex = request.param("index");
         String defaultType = request.param("type");
@@ -101,7 +102,7 @@ public class RestBulkAction extends BaseRestHandler {
         bulkRequest.setRefreshPolicy(request.param("refresh"));
         bulkRequest.add(request.requiredContent(), defaultIndex, defaultType, defaultRouting,
             defaultFetchSourceContext, defaultPipeline, defaultRequireAlias, allowExplicitIndex, request.getXContentType());
-
+        // bulkRequest
         return channel -> client.bulk(bulkRequest, new RestStatusToXContentListener<>(channel));
     }
 

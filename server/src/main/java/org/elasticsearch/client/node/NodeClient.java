@@ -39,6 +39,7 @@ import java.util.function.Supplier;
 
 /**
  * Client that executes actions on the local node.
+ * 在本地 node 执行操作的client
  */
 public class NodeClient extends AbstractClient {
 
@@ -83,6 +84,7 @@ public class NodeClient extends AbstractClient {
     public <    Request extends ActionRequest,
                 Response extends ActionResponse
             > Task executeLocally(ActionType<Response> action, Request request, ActionListener<Response> listener) {
+        // 将请求转化为对应 transport 层的 action，由其处理创建index
         return transportAction(action).execute(request, listener);
     }
 
@@ -93,6 +95,7 @@ public class NodeClient extends AbstractClient {
     public <    Request extends ActionRequest,
                 Response extends ActionResponse
             > Task executeLocally(ActionType<Response> action, Request request, TaskListener<Response> listener) {
+        // 请求的action转化为对应Transport层的action，然后再由Transport层的action来处理BulkRequest
         return transportAction(action).execute(request, listener);
     }
 
@@ -114,6 +117,7 @@ public class NodeClient extends AbstractClient {
         if (actions == null) {
             throw new IllegalStateException("NodeClient has not been initialized");
         }
+        // actions是个action到transportAction的映射，这个映射关系是在节点启动时初始化的
         TransportAction<Request, Response> transportAction = actions.get(action);
         if (transportAction == null) {
             throw new IllegalStateException("failed to find action [" + action + "] to execute");

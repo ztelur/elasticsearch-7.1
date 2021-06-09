@@ -46,7 +46,7 @@ public class OneMergeHelper {
      **/
     public static long getTotalBytesWritten(Thread thread,
                                             MergePolicy.OneMerge merge) throws IOException {
-        /**
+        /**TransportBulkAction
          * TODO: The number of bytes written during the merge should be accessible in OneMerge.
          */
         if (thread instanceof ConcurrentMergeScheduler.MergeThread) {

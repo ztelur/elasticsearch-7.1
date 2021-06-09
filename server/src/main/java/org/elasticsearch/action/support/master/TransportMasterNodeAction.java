@@ -55,6 +55,7 @@ import java.util.function.Predicate;
 
 /**
  * A base class for operations that needs to be performed on the master node.
+ * 专门处理需要在 master node 上执行的操作
  */
 public abstract class TransportMasterNodeAction<Request extends MasterNodeRequest<Request>, Response extends ActionResponse>
     extends HandledTransportAction<Request, Response> {
@@ -107,6 +108,7 @@ public abstract class TransportMasterNodeAction<Request extends MasterNodeReques
 
     @Override
     protected void doExecute(Task task, final Request request, ActionListener<Response> listener) {
+        // 根据当前集群状态进行处理
         ClusterState state = clusterService.state();
         logger.trace("starting processing request [{}] with cluster state version [{}]", request, state.version());
         if (task != null) {
@@ -115,6 +117,9 @@ public abstract class TransportMasterNodeAction<Request extends MasterNodeReques
         new AsyncSingleAction(task, request, listener).doStart(state);
     }
 
+    /**
+     * 单独异步 Action
+     */
     class AsyncSingleAction {
 
         private final ActionListener<Response> listener;
@@ -133,14 +138,18 @@ public abstract class TransportMasterNodeAction<Request extends MasterNodeReques
         protected void doStart(ClusterState clusterState) {
             try {
                 final DiscoveryNodes nodes = clusterState.nodes();
+                // 如果当前节点是选取的 Master，或者需要本地执行
                 if (nodes.isLocalNodeElectedMaster() || localExecute(request)) {
                     // check for block, if blocked, retry, else, execute locally
+                    // 检查 block，如果被 blocked了，则重试，否则直接本地执行
                     final ClusterBlockException blockException = checkBlock(request, clusterState);
                     if (blockException != null) {
+                        // excetion 是否可以重试
                         if (!blockException.retryable()) {
                             listener.onFailure(blockException);
                         } else {
                             logger.debug("can't execute due to a cluster block, retrying", blockException);
+                            // 重试
                             retry(clusterState, blockException, newState -> {
                                 try {
                                     ClusterBlockException newException = checkBlock(request, newState);
@@ -162,16 +171,21 @@ public abstract class TransportMasterNodeAction<Request extends MasterNodeReques
                                 delegatedListener.onFailure(t);
                             }
                         });
+                        // 本地线程池执行
                         threadPool.executor(executor)
                             .execute(ActionRunnable.wrap(delegate, l -> masterOperation(task, request, clusterState, l)));
                     }
                 } else {
+                    // 选取 master 节点执行
                     if (nodes.getMasterNode() == null) {
                         logger.debug("no known master node, scheduling a retry");
+                        // 当 master 节点发生变化后重试
                         retryOnMasterChange(clusterState, null);
                     } else {
+                        // 获取 master node
                         DiscoveryNode masterNode = nodes.getMasterNode();
                         final String actionName = getMasterActionName(masterNode);
+                        // 通过 transportService 发送消息，通知 master 创建 index
                         transportService.sendRequest(masterNode, actionName, request,
                             new ActionListenerResponseHandler<Response>(listener, TransportMasterNodeAction.this::read) {
                                 @Override
