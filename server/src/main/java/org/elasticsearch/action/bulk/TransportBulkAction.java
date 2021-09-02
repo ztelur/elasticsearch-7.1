@@ -263,6 +263,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             }
             // Step 3: create all the indices that are missing, if there are any missing. start the bulk after all the creates come back.
             if (autoCreateIndices.isEmpty()) {
+                // 不需要自动创建indices，所以直接创建bulk
                 executeBulk(task, bulkRequest, startTime, listener, responses, indicesThatCannotBeCreated);
             } else {
                 final AtomicInteger counter = new AtomicInteger(autoCreateIndices.size());
@@ -450,7 +451,12 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             }
             final ConcreteIndices concreteIndices = new ConcreteIndices(clusterState, indexNameExpressionResolver);
             Metadata metadata = clusterState.metadata();
+            // 遍历BulkRequest的所有子请求，然后根据请求的操作类型执行相应的逻辑，
+            // 对于写入请求，会首先根据IndexMetaData信息，为每条写入请求IndexRequest生成路由信息，
+            // 并在process过程中按需生成_id字段：
             for (int i = 0; i < bulkRequest.requests.size(); i++) {
+
+                // 获得数据
                 DocWriteRequest<?> docWriteRequest = bulkRequest.requests.get(i);
                 //the request can only be null because we set it to null in the previous step, so it gets ignored
                 if (docWriteRequest == null) {
@@ -485,7 +491,9 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
                             final IndexMetadata indexMetadata = metadata.index(concreteIndex);
                             MappingMetadata mappingMd = indexMetadata.mappingOrDefault();
                             Version indexCreated = indexMetadata.getCreationVersion();
+                            // 根据metadata解析路由
                             indexRequest.resolveRouting(metadata);
+                            // 如果用户没有指定doc id，则会自动生成
                             indexRequest.process(indexCreated, mappingMd, concreteIndex.getName());
                             break;
                         case UPDATE:
@@ -512,15 +520,23 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
             }
 
             // first, go over all the requests and create a ShardId -> Operations mapping
+            /**
+             * 然后根据每个IndexRequest请求的路由信息（如果写入时未指定路由，则es默认使用doc id作为路由）
+             * 得到所要写入的目标shard id，并将DocWriteRequest封装为BulkItemRequest且
+             * 添加到对应shardId的请求列表中。
+             */
             Map<ShardId, List<BulkItemRequest>> requestsByShard = new HashMap<>();
             for (int i = 0; i < bulkRequest.requests.size(); i++) {
+                //  从bulk请求中得到每个doc写入请求
                 DocWriteRequest<?> request = bulkRequest.requests.get(i);
                 if (request == null) {
                     continue;
                 }
                 String concreteIndex = concreteIndices.getConcreteIndex(request.index()).getName();
+                // 根据路由，找出doc写入的目标shard id
                 ShardId shardId = clusterService.operationRouting().indexShards(clusterState, concreteIndex, request.id(),
                     request.routing()).shardId();
+                // requestsByShard的key是shard id，value是对应的单个doc写入请求（会被封装成BulkItemRequest）的集合
                 List<BulkItemRequest> shardRequests = requestsByShard.computeIfAbsent(shardId, shard -> new ArrayList<>());
                 shardRequests.add(new BulkItemRequest(i, request));
             }
@@ -533,9 +549,14 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
 
             final AtomicInteger counter = new AtomicInteger(requestsByShard.size());
             String nodeId = clusterService.localNode().getId();
+            /**
+             * 请求按shard进行了拆分，接下来会将每个shard对应的所有请求封装为BulkShardRequest
+             * 并交由TransportShardBulkAction
+             */
             for (Map.Entry<ShardId, List<BulkItemRequest>> entry : requestsByShard.entrySet()) {
                 final ShardId shardId = entry.getKey();
                 final List<BulkItemRequest> requests = entry.getValue();
+                // 对每个shard id及对应的BulkItemRequest集合，封装为一个BulkShardRequest
                 BulkShardRequest bulkShardRequest = new BulkShardRequest(shardId, bulkRequest.getRefreshPolicy(),
                         requests.toArray(new BulkItemRequest[requests.size()]));
                 bulkShardRequest.waitForActiveShards(bulkRequest.waitForActiveShards());
@@ -544,6 +565,7 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
                 if (task != null) {
                     bulkShardRequest.setParentTask(nodeId, task.getId());
                 }
+                // 交由TransportShardBulkAction
                 shardBulkAction.execute(bulkShardRequest, new ActionListener<BulkShardResponse>() {
                     @Override
                     public void onResponse(BulkShardResponse bulkShardResponse) {
@@ -670,6 +692,16 @@ public class TransportBulkAction extends HandledTransportAction<BulkRequest, Bul
         }
     }
 
+    /**
+     * 创建完index后，index的各shard已在数据节点上建立完成，接着协调节点将会转发写入请求到文档对应的primary shard。
+     * 协调节点处理Bulk请求转发的入口为executeBulk方法：
+     * @param task
+     * @param bulkRequest
+     * @param startTimeNanos
+     * @param listener
+     * @param responses
+     * @param indicesThatCannotBeCreated
+     */
     void executeBulk(Task task, final BulkRequest bulkRequest, final long startTimeNanos, final ActionListener<BulkResponse> listener,
             final AtomicArray<BulkItemResponse> responses, Map<String, IndexNotFoundException> indicesThatCannotBeCreated) {
         new BulkOperation(task, bulkRequest, listener, responses, startTimeNanos, indicesThatCannotBeCreated).run();

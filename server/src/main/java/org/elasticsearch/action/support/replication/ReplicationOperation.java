@@ -107,6 +107,12 @@ public class ReplicationOperation<
         this.retryTimeout = retryTimeout;
     }
 
+    /**
+     *         primary所在的node收到协调节点发过来的写入请求后，开始正式执行写入的逻辑，
+     *         写入执行的入口是在ReplicationOperation类的execute方法，该方法中执行的两个关键步骤是，
+     *         首先写主shard，如果主shard写入成功，再将写入请求发送到从shard所在的节点。
+     * @throws Exception
+     */
     public void execute() throws Exception {
         final String activeShardCountFailure = checkActiveShardCount();
         final ShardRouting primaryRouting = primary.routingEntry();
@@ -119,6 +125,7 @@ public class ReplicationOperation<
 
         totalShards.incrementAndGet();
         pendingActions.incrementAndGet(); // increase by 1 until we finish all primary coordination
+        //
         primary.perform(request, ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure));
     }
 

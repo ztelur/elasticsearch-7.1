@@ -406,7 +406,8 @@ public abstract class AbstractClient implements Client {
      * This is the single execution point of *all* clients.
      */
     @Override
-    public final <Request extends ActionRequest, Response extends ActionResponse> void execute(
+    public final <Request extends ActionRequest, Response extends ActionResponse> void
+    execute(
         ActionType<Response> action, Request request, ActionListener<Response> listener) {
         listener = threadedWrapper.wrap(listener);
         doExecute(action, request, listener);
