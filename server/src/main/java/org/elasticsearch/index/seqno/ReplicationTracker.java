@@ -1237,21 +1237,28 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
         assert invariant();
         assert primaryMode;
         assert handoffInProgress == false;
+        // 获取主分片本地的checkpoints,包括LocalCheckpoint和GlobalCheckpoint
         CheckpointState cps = checkpoints.get(allocationId);
         if (cps == null) {
             // can happen if replica was removed from cluster but replication process is unaware of it yet
             return;
         }
+        // 检查是否需要更新LocalCheckpoint，即需要更新的值是否大于当前已有值
         boolean increasedLocalCheckpoint = updateLocalCheckpoint(allocationId, cps, localCheckpoint);
+        // pendingInSync是一个保存等待更新LocalCheckpoint的Set，存放allocation IDs
         boolean pending = pendingInSync.contains(allocationId);
+        // 如果是待更新的，且当前的localCheckpoint大于等于GlobalCheckpoint(每次都是先更新Local再Global，正常情况下，Local应该大于等于Global)
         if (pending && cps.localCheckpoint >= getGlobalCheckpoint()) {
+            // 从待更新集合中移除
             pendingInSync.remove(allocationId);
             pending = false;
+            // 此分片是否同步，用于更新GlobalCheckpoint时使用
             cps.inSync = true;
             updateReplicationGroupAndNotify();
             logger.trace("marked [{}] as in-sync", allocationId);
             notifyAllWaiters();
         }
+        // 更新GlobalCheckpoint
         if (increasedLocalCheckpoint && pending == false) {
             updateGlobalCheckpointOnPrimary();
         }
@@ -1287,9 +1294,11 @@ public class ReplicationTracker extends AbstractIndexShardComponent implements L
      */
     private synchronized void updateGlobalCheckpointOnPrimary() {
         assert primaryMode;
+        // 计算GlobalCheckpoint，即检验无误后，取Math.min(cps.localCheckpoint, Long.MAX_VALUE)
         final long computedGlobalCheckpoint = computeGlobalCheckpoint(pendingInSync, checkpoints.values(), getGlobalCheckpoint());
         assert computedGlobalCheckpoint >= globalCheckpoint : "new global checkpoint [" + computedGlobalCheckpoint +
             "] is lower than previous one [" + globalCheckpoint + "]";
+        // 需要更新到的GlobalCheckpoint值比当前的global值大，则需要更新
         if (globalCheckpoint != computedGlobalCheckpoint) {
             globalCheckpoint = computedGlobalCheckpoint;
             logger.trace("updated global checkpoint to [{}]", computedGlobalCheckpoint);

@@ -883,6 +883,12 @@ public class InternalEngine extends Engine {
         return localCheckpointTracker.generateSeqNo();
     }
 
+    /**
+     * 终于到了写入的地方？？？？？
+     * @param index operation to perform
+     * @return
+     * @throws IOException
+     */
     @Override
     public IndexResult index(Index index) throws IOException {
         assert Objects.equals(index.uid().field(), IdFieldMapper.NAME) : index.uid().field();
@@ -944,7 +950,7 @@ public class InternalEngine extends Engine {
                     }
 
                     assert index.seqNo() >= 0 : "ops should have an assigned seq no.; origin: " + index.origin();
-
+                    // 将数据写入 Lucene
                     if (plan.indexIntoLucene || plan.addStaleOpToLucene) {
                         indexResult = indexIntoLucene(index, plan);
                     } else {
@@ -952,6 +958,13 @@ public class InternalEngine extends Engine {
                             plan.versionForIndexing, index.primaryTerm(), index.seqNo(), plan.currentNotFoundOrDeleted);
                     }
                 }
+                // 写入 translog
+                /**
+                 * ES的写入操作是先写lucene，将数据写入到lucene内存后再写translog。ES之所以先写lucene后写log主要原因大概是写入Lucene时，
+                 * Lucene会再对数据进行一些检查，有可能出现写入Lucene失败的情况。如果先写translog，
+                 * 那么就要处理写入translog成功但是写入Lucene一直失败的问题，
+                 * 所以ES采用了先写Lucene的方式。
+                 */
                 if (index.origin().isFromTranslog() == false) {
                     final Translog.Location location;
                     if (indexResult.getResultType() == Result.Type.SUCCESS) {

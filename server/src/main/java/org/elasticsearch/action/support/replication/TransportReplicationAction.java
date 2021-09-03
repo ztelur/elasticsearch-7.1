@@ -312,6 +312,7 @@ public abstract class TransportReplicationAction<
         return () -> {};
     }
 
+    // 主流程
     class AsyncPrimaryAction extends AbstractRunnable {
         private final ActionListener<Response> onCompletionListener;
         private final ReplicationTask replicationTask;
@@ -332,20 +333,23 @@ public abstract class TransportReplicationAction<
             // we may end up here if the cluster state used to route the primary is so stale that the underlying
             // index shard was replaced with a replica. For example - in a two node cluster, if the primary fails
             // the replica will take over and a replica will be assigned to the first node.
+            // 判断是否为主分片
             if (shardRouting.primary() == false) {
                 throw new ReplicationOperation.RetryOnPrimaryException(shardId, "actual shard is not a primary " + shardRouting);
             }
             final String actualAllocationId = shardRouting.allocationId().getId();
+            // allocationId是否是预期值；
             if (actualAllocationId.equals(primaryRequest.getTargetAllocationID()) == false) {
                 throw new ShardNotFoundException(shardId, "expected allocation id [{}] but found [{}]",
                     primaryRequest.getTargetAllocationID(), actualAllocationId);
             }
             final long actualTerm = indexShard.getPendingPrimaryTerm();
+            // 3.PrimaryTerm是否是预期值
             if (actualTerm != primaryRequest.getPrimaryTerm()) {
                 throw new ShardNotFoundException(shardId, "expected allocation id [{}] with term [{}] but found [{}]",
                     primaryRequest.getTargetAllocationID(), primaryRequest.getPrimaryTerm(), actualTerm);
             }
-
+            //
             acquirePrimaryOperationPermit(
                     indexShard,
                     primaryRequest.getRequest(),
@@ -967,6 +971,7 @@ public abstract class TransportReplicationAction<
                 });
             }
             assert indexShard.getActiveOperationsCount() != 0 : "must perform shard operation under a permit";
+            // 写入主流程
             shardOperationOnPrimary(request, indexShard, listener);
         }
 
@@ -1072,6 +1077,16 @@ public abstract class TransportReplicationAction<
      */
     protected class ReplicasProxy implements ReplicationOperation.Replicas<ReplicaRequest> {
 
+        /**
+         * 向子节点发送插入或修改请求
+         * @param replica                    the shard this request should be executed on
+         * @param request
+         * @param primaryTerm                the primary term
+         * @param globalCheckpoint           the global checkpoint on the primary
+         * @param maxSeqNoOfUpdatesOrDeletes the max seq_no of updates (index operations overwriting Lucene) or deletes on primary
+         *                                   after this replication was executed on it.
+         * @param listener                   callback for handling the response or failure
+         */
         @Override
         public void performOn(
                 final ShardRouting replica,

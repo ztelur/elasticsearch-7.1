@@ -125,7 +125,7 @@ public class ReplicationOperation<
 
         totalShards.incrementAndGet();
         pendingActions.incrementAndGet(); // increase by 1 until we finish all primary coordination
-        //
+        // 写入主分片，成功后会调用handlePrimaryResult,失败则是onFailure
         primary.perform(request, ActionListener.wrap(this::handlePrimaryResult, resultListener::onFailure));
     }
 
@@ -152,16 +152,20 @@ public class ReplicationOperation<
             final ReplicationGroup replicationGroup = primary.getReplicationGroup();
             final PendingReplicationActions pendingReplicationActions = primary.getPendingReplicationActions();
             markUnavailableShardsAsStale(replicaRequest, replicationGroup);
+            // 完primary后这里转发请求到replicas
             performOnReplicas(replicaRequest, globalCheckpoint, maxSeqNoOfUpdatesOrDeletes, replicationGroup, pendingReplicationActions);
         }
+        // 执行action，通过failure来判断是调用 onResponse 还是onFailure
         primaryResult.runPostReplicationActions(new ActionListener<Void>() {
 
             @Override
             public void onResponse(Void aVoid) {
+                // 调用 updateCheckPoints 去更新检查点
                 successfulShards.incrementAndGet();
                 try {
                     updateCheckPoints(primary.routingEntry(), primary::localCheckpoint, primary::globalCheckpoint);
                 } finally {
+                    // 真正完成请求
                     decPendingAndFinishIfNeeded();
                 }
             }
@@ -185,6 +189,14 @@ public class ReplicationOperation<
         }
     }
 
+    /**
+     * 主分片操作完后，将请求转发给replica节点
+     * @param replicaRequest
+     * @param globalCheckpoint
+     * @param maxSeqNoOfUpdatesOrDeletes
+     * @param replicationGroup
+     * @param pendingReplicationActions
+     */
     private void performOnReplicas(final ReplicaRequest replicaRequest, final long globalCheckpoint,
                                    final long maxSeqNoOfUpdatesOrDeletes, final ReplicationGroup replicationGroup,
                                    final PendingReplicationActions pendingReplicationActions) {
@@ -201,6 +213,15 @@ public class ReplicationOperation<
         }
     }
 
+    /**
+     * performOnReplica方法会将请求转发到目标节点，如果出现异常，如对端节点挂掉、shard写入失败等，
+     * 对于这些异常，primary认为该replica shard发生故障不可用，将会向master汇报并移除该replica
+     * @param shard
+     * @param replicaRequest
+     * @param globalCheckpoint
+     * @param maxSeqNoOfUpdatesOrDeletes
+     * @param pendingReplicationActions
+     */
     private void performOnReplica(final ShardRouting shard, final ReplicaRequest replicaRequest,
                                   final long globalCheckpoint, final long maxSeqNoOfUpdatesOrDeletes,
                                   final PendingReplicationActions pendingReplicationActions) {
@@ -248,6 +269,7 @@ public class ReplicationOperation<
 
             @Override
             public void tryAction(ActionListener<ReplicaResponse> listener) {
+                //
                 replicasProxy.performOn(shard, replicaRequest, primaryTerm, globalCheckpoint, maxSeqNoOfUpdatesOrDeletes, listener);
             }
 
@@ -272,7 +294,9 @@ public class ReplicationOperation<
 
     private void updateCheckPoints(ShardRouting shard, LongSupplier localCheckpointSupplier, LongSupplier globalCheckpointSupplier) {
         try {
+            // 更新本地检查点
             primary.updateLocalCheckpointForShard(shard.allocationId().getId(), localCheckpointSupplier.getAsLong());
+            // 更新全局检查点
             primary.updateGlobalCheckpointForShard(shard.allocationId().getId(), globalCheckpointSupplier.getAsLong());
         } catch (final AlreadyClosedException e) {
             // the index was deleted or this shard was never activated after a relocation; fall through and finish normally
@@ -351,6 +375,7 @@ public class ReplicationOperation<
                     failuresArray
                 )
             );
+            // 进行回调
             resultListener.onResponse(primaryResult);
         }
     }
